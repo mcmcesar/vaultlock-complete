@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const CryptoJS = require('crypto-js');
+const path = require('path'); // Movido para o topo
 require('dotenv').config();
 
 const app = express();
@@ -53,27 +54,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'VaultLock backend online' });
 });
 
-
-// Servir arquivos estáticos do frontend em produção
+// Servir o build do React em produção (apenas um bloco)
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../frontend/dist')));
-
-  // Qualquer rota não-API serve o index.html (para React Router funcionar no futuro)
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
-  });
-}
-
-const path = require('path');
-
-// Servir o build do React em produção
-if (process.env.NODE_ENV === 'production') {
-  // Pasta relativa: do backend/src para frontend/dist
   const buildPath = path.join(__dirname, '../../frontend/dist');
 
   app.use(express.static(buildPath));
 
-  // Catch-all: qualquer rota não-API serve index.html (para React funcionar em refresh ou rotas)
+  // Catch-all route: qualquer rota não-API retorna index.html
   app.get('*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });

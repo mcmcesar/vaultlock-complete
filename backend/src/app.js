@@ -53,7 +53,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'VaultLock backend online' });
 });
 
-const path = require('path');
 
 // Servir arquivos estáticos do frontend em produção
 if (process.env.NODE_ENV === 'production') {

@@ -65,6 +65,21 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+const path = require('path');
+
+// Servir o build do React em produção
+if (process.env.NODE_ENV === 'production') {
+  // Pasta relativa: do backend/src para frontend/dist
+  const buildPath = path.join(__dirname, '../../frontend/dist');
+
+  app.use(express.static(buildPath));
+
+  // Catch-all: qualquer rota não-API serve index.html (para React funcionar em refresh ou rotas)
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);
 });

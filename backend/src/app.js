@@ -53,6 +53,18 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'VaultLock backend online' });
 });
 
+const path = require('path');
+
+// Servir arquivos estáticos do frontend em produção
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+
+  // Qualquer rota não-API serve o index.html (para React Router funcionar no futuro)
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);
 });

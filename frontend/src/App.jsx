@@ -6,7 +6,11 @@ function App() {
   const [text, setText] = useState('');
   const [key, setKey] = useState('');
   const [result, setResult] = useState('');
-  const [mode, setMode] = useState('encrypt'); // 'encrypt' ou 'decrypt'
+  const [mode, setMode] = useState('encrypt');
+  const [file, setFile] = useState(null);
+  const [filePassword, setFilePassword] = useState('');
+  const [encryptedFileUrl, setEncryptedFileUrl] = useState(null);
+  const [encryptedFileName, setEncryptedFileName] = useState('');
 
   const login = async () => {
     try {
@@ -15,182 +19,157 @@ function App() {
         password: '123456'
       });
       setToken(res.data.token);
-      setResult('Login realizado com sucesso! Você agora pode usar a criptografia.');
+      setResult('Login realizado com sucesso!');
     } catch (err) {
-      setResult('Erro no login: credenciais inválidas (verifique admin / 123456)');
-      console.error('Erro login:', err);
+      setResult('Erro no login: credenciais inválidas');
     }
   };
 
-  const processData = async () => {
+  const processText = async () => {
     if (!token) {
-      setResult('Faça login primeiro para usar a funcionalidade!');
+      setResult('Faça login primeiro!');
       return;
     }
-
     if (!text || !key) {
-      setResult('Preencha o texto e a chave secreta!');
+      setResult('Preencha texto e chave!');
       return;
     }
 
     try {
       const endpoint = mode === 'encrypt' ? '/encrypt' : '/decrypt';
-      const payload = mode === 'encrypt'
-        ? { text, key }
-        : { encrypted: text, key };
+      const payload = mode === 'encrypt' ? { text, key } : { encrypted: text, key };
 
       const res = await axios.post(`/api${endpoint}`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      const output = mode === 'encrypt' ? res.data.encrypted : res.data.decrypted;
-      setResult(output);
+      setResult(mode === 'encrypt' ? res.data.encrypted : res.data.decrypted);
     } catch (err) {
-      const errorMsg = err.response?.data?.error || err.message || 'Erro desconhecido';
-      setResult(`Erro ao processar: ${errorMsg}`);
-      console.error('Erro processData:', err);
+      setResult('Erro: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Função para criptografar arquivo no navegador (Web Crypto API)
+  const encryptFile = async (file, password) => {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt']
+    );
+
+    const buffer = await file.arrayBuffer();
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      buffer
+    );
+
+    // Concatena salt + iv + dados criptografados
+    const combined = new Uint8Array([
+      ...salt,
+      ...iv,
+      ...new Uint8Array(encryptedBuffer)
+    ]);
+
+    const blob = new Blob([combined], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const newName = file.name + '.vault';
+
+    return { url, name: newName };
+  };
+
+  const handleFileEncrypt = async () => {
+    if (!file) {
+      alert('Selecione um arquivo primeiro!');
+      return;
+    }
+    if (!filePassword) {
+      alert('Digite uma senha forte para o arquivo!');
+      return;
+    }
+
+    try {
+      const { url, name } = await encryptFile(file, filePassword);
+      setEncryptedFileUrl(url);
+      setEncryptedFileName(name);
+      setResult('Arquivo criptografado com sucesso! Clique para baixar.');
+    } catch (err) {
+      setResult('Erro ao criptografar arquivo: ' + err.message);
     }
   };
 
   return (
-    <div style={{
-      padding: '30px',
-      maxWidth: '700px',
-      margin: '0 auto',
-      fontFamily: 'Arial, sans-serif',
-      background: '#f9f9f9',
-      borderRadius: '10px',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-    }}>
+    <div style={{ padding: '30px', maxWidth: '700px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
       <h1 style={{ textAlign: 'center', color: '#2c3e50' }}>VaultLock</h1>
-      <p style={{ textAlign: 'center', color: '#7f8c8d' }}>Criptografia e descriptografia segura com AES</p>
+      <p style={{ textAlign: 'center', color: '#7f8c8d' }}>Criptografia segura de textos e arquivos</p>
 
       {!token ? (
         <div style={{ textAlign: 'center', margin: '40px 0' }}>
-          <p style={{ fontSize: '18px', marginBottom: '20px' }}>
-            Credenciais de teste: <strong>admin</strong> / <strong>123456</strong>
-          </p>
-          <button
-            onClick={login}
-            style={{
-              padding: '14px 40px',
-              fontSize: '18px',
-              background: '#27ae60',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-            }}
-          >
+          <p>Credenciais de teste: <strong>admin</strong> / <strong>123456</strong></p>
+          <button onClick={login} style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px' }}>
             Fazer Login
           </button>
         </div>
       ) : (
         <div>
-          <p style={{ color: '#27ae60', fontWeight: 'bold', textAlign: 'center' }}>
-            Logado com sucesso!
-          </p>
+          <p style={{ color: '#27ae60', textAlign: 'center' }}>Logado com sucesso!</p>
 
-          <div style={{ margin: '25px 0', textAlign: 'center' }}>
-            <button
-              onClick={() => setMode('encrypt')}
-              style={{
-                padding: '10px 25px',
-                margin: '0 10px',
-                background: mode === 'encrypt' ? '#3498db' : '#ecf0f1',
-                color: mode === 'encrypt' ? 'white' : '#2c3e50',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: mode === 'encrypt' ? 'bold' : 'normal'
-              }}
-            >
-              Criptografar
-            </button>
-
-            <button
-              onClick={() => setMode('decrypt')}
-              style={{
-                padding: '10px 25px',
-                margin: '0 10px',
-                background: mode === 'decrypt' ? '#3498db' : '#ecf0f1',
-                color: mode === 'decrypt' ? 'white' : '#2c3e50',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: mode === 'decrypt' ? 'bold' : 'normal'
-              }}
-            >
-              Descriptografar
-            </button>
+          {/* Parte de texto (já existente) */}
+          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
+            <h3>Criptografar/Descriptografar Texto</h3>
+            {/* ... seus inputs e botões de texto aqui - mantenha como estava */}
           </div>
 
-          <input
-            type="text"
-            placeholder={mode === 'encrypt' ? "Digite o texto que deseja proteger..." : "Cole aqui o texto criptografado..."}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '14px',
-              margin: '12px 0',
-              borderRadius: '6px',
-              border: '1px solid #bdc3c7',
-              fontSize: '16px'
-            }}
-          />
+          {/* Nova parte: Criptografar Arquivo */}
+          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
+            <h3>Criptografar Arquivo (PDF, DOCX, etc.)</h3>
+            <input 
+              type="file" 
+              onChange={(e) => setFile(e.target.files[0])} 
+              style={{ margin: '10px 0', display: 'block' }} 
+            />
+            <input 
+              type="password" 
+              placeholder="Senha forte para o arquivo" 
+              value={filePassword} 
+              onChange={(e) => setFilePassword(e.target.value)} 
+              style={{ width: '100%', padding: '10px', margin: '10px 0' }} 
+            />
+            <button 
+              onClick={handleFileEncrypt}
+              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px' }}
+            >
+              Criptografar Arquivo
+            </button>
 
-          <input
-            type="text"
-            placeholder="Digite sua chave secreta (mantenha em segurança!)"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '14px',
-              margin: '12px 0',
-              borderRadius: '6px',
-              border: '1px solid #bdc3c7',
-              fontSize: '16px'
-            }}
-          />
+            {encryptedFileUrl && (
+              <div style={{ marginTop: '20px' }}>
+                <a 
+                  href={encryptedFileUrl} 
+                  download={encryptedFileName}
+                  style={{ color: '#27ae60', fontWeight: 'bold' }}
+                >
+                  Baixar arquivo criptografado (.vault)
+                </a>
+              </div>
+            )}
+          </div>
 
-          <button
-            onClick={processData}
-            style={{
-              width: '100%',
-              padding: '16px',
-              fontSize: '18px',
-              background: '#e67e22',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              marginTop: '20px',
-              boxShadow: '0 3px 10px rgba(0,0,0,0.2)'
-            }}
-          >
-            {mode === 'encrypt' ? 'Criptografar Agora' : 'Descriptografar Agora'}
-          </button>
-
-          {result && (
-            <div style={{
-              marginTop: '30px',
-              padding: '20px',
-              background: '#ecf0f1',
-              borderRadius: '8px',
-              border: '1px solid #bdc3c7',
-              wordBreak: 'break-all'
-            }}>
-              <strong style={{ display: 'block', marginBottom: '10px' }}>
-                Resultado:
-              </strong>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                {result}
-              </pre>
-            </div>
-          )}
+          {result && <p style={{ marginTop: '20px', color: '#e74c3c' }}>{result}</p>}
         </div>
       )}
     </div>

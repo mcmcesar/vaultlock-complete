@@ -3,6 +3,9 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const CryptoJS = require('crypto-js');
 const path = require('path'); // Movido para o topo
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -65,7 +68,68 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
 }
+// Configuração do multer para salvar arquivos na pasta uploads/
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
 
+const upload = multer({ storage: storage });
+
+// Rota para upload de arquivo criptografado
+app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  }
+
+  // Salva metadados em um JSON simples (para MVP)
+  const metadataPath = path.join(__dirname, 'metadata.json');
+  let metadata = [];
+  if (fs.existsSync(metadataPath)) {
+    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  }
+
+  const newFile = {
+    id: Date.now(),
+    originalName: req.body.originalName || req.file.originalname,
+    storedName: req.file.filename,
+    size: req.file.size,
+    uploadDate: new Date().toISOString(),
+    user: 'admin' // depois vamos usar req.user do JWT
+  };
+
+  metadata.push(newFile);
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+
+  res.json({ message: 'Arquivo salvo com sucesso!', file: newFile });
+});
+
+// Rota para listar arquivos do usuário
+app.get('/api/files', (req, res) => {
+  const metadataPath = path.join(__dirname, 'metadata.json');
+  if (!fs.existsSync(metadataPath)) {
+    return res.json([]);
+  }
+
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  // Filtrar por usuário depois
+  res.json(metadata);
+});
+
+// Rota para download de arquivo salvo
+app.get('/api/download/:filename', (req, res) => {
+  const filePath = path.join(__dirname, 'uploads', req.params.filename);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).json({ error: 'Arquivo não encontrado' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);
 });

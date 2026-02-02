@@ -14,6 +14,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'sua-chave-secreta-muito-forte-aqui-mude-isso!';
 
+// Rotas de criptografia de texto
 app.post('/api/encrypt', (req, res) => {
   const { text, key } = req.body;
   if (!text || !key) {
@@ -41,6 +42,7 @@ app.post('/api/decrypt', (req, res) => {
   }
 });
 
+// Rota de login
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (username === 'admin' && password === '123456') {
@@ -51,22 +53,12 @@ app.post('/api/login', (req, res) => {
   }
 });
 
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'VaultLock backend online' });
 });
 
-// Servir o build do React em produção
-if (process.env.NODE_ENV === 'production') {
-  const buildPath = path.join(__dirname, '../../frontend/dist');
-
-  app.use(express.static(buildPath));
-
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
-  });
-}
-
-// Configuração do multer para salvar arquivos na pasta uploads/
+// Configuração do multer para upload
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'uploads/');
@@ -97,7 +89,7 @@ app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
     storedName: req.file.filename,
     size: req.file.size,
     uploadDate: new Date().toISOString(),
-    user: 'admin' // depois vamos usar req.user do JWT
+    user: 'admin' // futuro: usar req.user do JWT
   };
 
   metadata.push(newFile);
@@ -106,18 +98,17 @@ app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
   res.json({ message: 'Arquivo salvo com sucesso!', file: newFile });
 });
 
-// Rota para listar arquivos do usuário
+// Lista de arquivos
 app.get('/api/files', (req, res) => {
   const metadataPath = path.join(__dirname, 'metadata.json');
   if (!fs.existsSync(metadataPath)) {
     return res.json([]);
   }
-
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
   res.json(metadata);
 });
 
-// Rota para download de arquivo salvo
+// Download de arquivo
 app.get('/api/download/:filename', (req, res) => {
   const filePath = path.join(__dirname, 'uploads', req.params.filename);
   if (fs.existsSync(filePath)) {
@@ -126,6 +117,15 @@ app.get('/api/download/:filename', (req, res) => {
     res.status(404).json({ error: 'Arquivo não encontrado' });
   }
 });
+
+// Servir o frontend React (deve ser o ÚLTIMO!)
+if (process.env.NODE_ENV === 'production') {
+  const buildPath = path.join(__dirname, '../../frontend/dist');
+  app.use(express.static(buildPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);

@@ -1,329 +1,135 @@
-import { useState } from 'react';
-import axios from 'axios';
+const express = require('express');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const CryptoJS = require('crypto-js');
+const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
+require('dotenv').config();
 
-function App() {
-  const [token, setToken] = useState('');
-  const [text, setText] = useState('');
-  const [key, setKey] = useState('');
-  const [result, setResult] = useState('');
-  const [mode, setMode] = useState('encrypt'); // encrypt ou decrypt para texto
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-  // Estados para arquivos
-  const [file, setFile] = useState(null);
-  const [filePassword, setFilePassword] = useState('');
-  const [encryptedFileUrl, setEncryptedFileUrl] = useState(null);
-  const [encryptedFileName, setEncryptedFileName] = useState('');
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = process.env.JWT_SECRET || 'sua-chave-secreta-muito-forte-aqui-mude-isso!';
 
-  const [decryptFile, setDecryptFile] = useState(null);
-  const [decryptPassword, setDecryptPassword] = useState('');
-  const [decryptedFileUrl, setDecryptedFileUrl] = useState(null);
-  const [decryptedFileName, setDecryptedFileName] = useState('');
+app.post('/api/encrypt', (req, res) => {
+  const { text, key } = req.body;
+  if (!text || !key) {
+    return res.status(400).json({ error: 'Text e key são obrigatórios' });
+  }
+  try {
+    const encrypted = CryptoJS.AES.encrypt(text, key).toString();
+    res.json({ encrypted });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro na criptografia: ' + err.message });
+  }
+});
 
-  const login = async () => {
-    try {
-      const res = await axios.post('/api/login', {
-        username: 'admin',
-        password: '123456'
-      });
-      setToken(res.data.token);
-      setResult('Login realizado com sucesso!');
-    } catch (err) {
-      setResult('Erro no login: credenciais inválidas');
-    }
-  };
+app.post('/api/decrypt', (req, res) => {
+  const { encrypted, key } = req.body;
+  if (!encrypted || !key) {
+    return res.status(400).json({ error: 'Encrypted e key são obrigatórios' });
+  }
+  try {
+    const bytes = CryptoJS.AES.decrypt(encrypted, key);
+    const originalText = bytes.toString(CryptoJS.enc.Utf8);
+    res.json({ decrypted: originalText });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro na descriptografia: ' + err.message });
+  }
+});
 
-  const processText = async () => {
-    if (!token) {
-      setResult('Faça login primeiro!');
-      return;
-    }
-    if (!text || !key) {
-      setResult('Preencha texto e chave!');
-      return;
-    }
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  // Auth simples de teste - em produção use bcrypt + banco de dados!
+  if (username === 'admin' && password === '123456') {
+    const token = jwt.sign({ user: username }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: 'Credenciais inválidas' });
+  }
+});
 
-    try {
-      const endpoint = mode === 'encrypt' ? '/encrypt' : '/decrypt';
-      const payload = mode === 'encrypt' ? { text, key } : { encrypted: text, key };
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: 'VaultLock backend online' });
+});
 
-      const res = await axios.post(`/api${endpoint}`, payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+// Servir o build do React em produção
+if (process.env.NODE_ENV === 'production') {
+  const buildPath = path.join(__dirname, '../../frontend/dist');
 
-      setResult(mode === 'encrypt' ? res.data.encrypted : res.data.decrypted);
-    } catch (err) {
-      setResult('Erro: ' + (err.response?.data?.error || err.message));
-    }
-  };
+  app.use(express.static(buildPath));
 
-  // Função para criptografar arquivo no navegador (Web Crypto API - AES-GCM)
-  const encryptFile = async (file, password) => {
-    const encoder = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(password),
-      { name: 'PBKDF2' },
-      false,
-      ['deriveBits', 'deriveKey']
-    );
-
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-
-    const key = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt']
-    );
-
-    const buffer = await file.arrayBuffer();
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      buffer
-    );
-
-    const combined = new Uint8Array([
-      ...salt,
-      ...iv,
-      ...new Uint8Array(encryptedBuffer)
-    ]);
-
-    const blob = new Blob([combined], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const newName = file.name + '.vault';
-
-    return { url, name: newName };
-  };
-
-  const handleFileEncrypt = async () => {
-    if (!file) {
-      alert('Selecione um arquivo primeiro!');
-      return;
-    }
-    if (!filePassword) {
-      alert('Digite uma senha forte para o arquivo!');
-      return;
-    }
-
-    try {
-      const { url, name } = await encryptFile(file, filePassword);
-      setEncryptedFileUrl(url);
-      setEncryptedFileName(name);
-      setResult('Arquivo criptografado com sucesso! Clique para baixar.');
-    } catch (err) {
-      setResult('Erro ao criptografar arquivo: ' + err.message);
-    }
-  };
-
-  // Função para descriptografar arquivo .vault
-  const decryptFileFunc = async (file, password) => {
-    try {
-      const buffer = await file.arrayBuffer();
-      const combined = new Uint8Array(buffer);
-
-      // Extrai salt (16 bytes), iv (12 bytes), encrypted (resto)
-      const salt = combined.slice(0, 16);
-      const iv = combined.slice(16, 28);
-      const encryptedData = combined.slice(28);
-
-      const encoder = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(password),
-        { name: 'PBKDF2' },
-        false,
-        ['deriveBits', 'deriveKey']
-      );
-
-      const key = await crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        true,
-        ['decrypt']
-      );
-
-      const decryptedBuffer = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        encryptedData
-      );
-
-      const blob = new Blob([decryptedBuffer]);
-      const url = URL.createObjectURL(blob);
-
-      // Remove .vault do nome para retornar o original
-      const originalName = file.name.replace(/\.vault$/i, '');
-
-      return { url, name: originalName };
-    } catch (err) {
-      throw new Error('Descriptografia falhou. Senha incorreta ou arquivo corrompido: ' + err.message);
-    }
-  };
-
-  const handleFileDecrypt = async () => {
-    if (!decryptFile) {
-      alert('Selecione o arquivo .vault primeiro!');
-      return;
-    }
-    if (!decryptPassword) {
-      alert('Digite a senha usada na criptografia!');
-      return;
-    }
-
-    try {
-      const { url, name } = await decryptFileFunc(decryptFile, decryptPassword);
-      setDecryptedFileUrl(url);
-      setDecryptedFileName(name);
-      setResult('Arquivo descriptografado com sucesso! Clique para baixar o original.');
-    } catch (err) {
-      setResult(err.message);
-    }
-  };
-
-  return (
-    <div style={{ padding: '30px', maxWidth: '800px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: '#f9f9f9', borderRadius: '10px' }}>
-      <h1 style={{ textAlign: 'center', color: '#2c3e50' }}>VaultLock</h1>
-      <p style={{ textAlign: 'center', color: '#7f8c8d' }}>Criptografia segura de textos e arquivos</p>
-
-      {!token ? (
-        <div style={{ textAlign: 'center', margin: '40px 0' }}>
-          <p>Credenciais de teste: <strong>admin</strong> / <strong>123456</strong></p>
-          <button 
-            onClick={login}
-            style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-          >
-            Fazer Login
-          </button>
-        </div>
-      ) : (
-        <div>
-          <p style={{ color: '#27ae60', textAlign: 'center', fontWeight: 'bold' }}>Logado com sucesso!</p>
-
-          {/* Criptografia / Descriptografia de Texto */}
-          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Criptografar ou Descriptografar Texto</h3>
-            <div style={{ margin: '20px 0', textAlign: 'center' }}>
-              <button 
-                onClick={() => setMode('encrypt')}
-                style={{ padding: '10px 20px', margin: '0 10px', background: mode === 'encrypt' ? '#3498db' : '#ecf0f1', color: mode === 'encrypt' ? 'white' : '#333', border: 'none', borderRadius: '6px' }}
-              >
-                Criptografar Texto
-              </button>
-              <button 
-                onClick={() => setMode('decrypt')}
-                style={{ padding: '10px 20px', margin: '0 10px', background: mode === 'decrypt' ? '#3498db' : '#ecf0f1', color: mode === 'decrypt' ? 'white' : '#333', border: 'none', borderRadius: '6px' }}
-              >
-                Descriptografar Texto
-              </button>
-            </div>
-
-            <textarea 
-              placeholder={mode === 'encrypt' ? "Digite o texto aqui..." : "Cole o texto criptografado aqui..."}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              style={{ width: '100%', height: '100px', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }}
-            />
-
-            <input 
-              type="text" 
-              placeholder="Chave secreta"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }}
-            />
-
-            <button 
-              onClick={processText}
-              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px' }}
-            >
-              {mode === 'encrypt' ? 'Criptografar Texto' : 'Descriptografar Texto'}
-            </button>
-          </div>
-
-          {/* Criptografar Arquivo */}
-          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Criptografar Arquivo (PDF, DOCX, imagens, etc.)</h3>
-            <input 
-              type="file" 
-              onChange={(e) => setFile(e.target.files[0])} 
-              style={{ margin: '10px 0', display: 'block' }} 
-            />
-            <input 
-              type="password" 
-              placeholder="Senha forte para o arquivo" 
-              value={filePassword} 
-              onChange={(e) => setFilePassword(e.target.value)} 
-              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }} 
-            />
-            <button 
-              onClick={handleFileEncrypt}
-              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', marginTop: '10px' }}
-            >
-              Criptografar Arquivo
-            </button>
-
-            {encryptedFileUrl && (
-              <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                <a 
-                  href={encryptedFileUrl} 
-                  download={encryptedFileName}
-                  style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}
-                >
-                  Baixar arquivo criptografado (.vault)
-                </a>
-              </div>
-            )}
-          </div>
-
-          {/* Descriptografar Arquivo */}
-          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Descriptografar Arquivo (.vault)</h3>
-            <input 
-              type="file" 
-              accept=".vault" 
-              onChange={(e) => setDecryptFile(e.target.files[0])} 
-              style={{ margin: '10px 0', display: 'block' }} 
-            />
-            <input 
-              type="password" 
-              placeholder="Senha usada na criptografia" 
-              value={decryptPassword} 
-              onChange={(e) => setDecryptPassword(e.target.value)} 
-              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }} 
-            />
-            <button 
-              onClick={handleFileDecrypt}
-              style={{ width: '100%', padding: '12px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', marginTop: '10px' }}
-            >
-              Descriptografar Arquivo
-            </button>
-
-            {decryptedFileUrl && (
-              <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                <a 
-                  href={decryptedFileUrl} 
-                  download={decryptedFileName}
-                  style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}
-                >
-                  Baixar arquivo original
-                </a>
-              </div>
-            )}
-          </div>
-
-          {result && (
-            <p style={{ marginTop: '30px', padding: '15px', background: '#ecf0f1', borderRadius: '8px', textAlign: 'center' }}>
-              {result}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
 }
 
-export default App;
+// Configuração do multer para salvar arquivos na pasta uploads/
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Rota para upload de arquivo criptografado
+app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  }
+
+  // Salva metadados em um JSON simples (para MVP)
+  const metadataPath = path.join(__dirname, 'metadata.json');
+  let metadata = [];
+  if (fs.existsSync(metadataPath)) {
+    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  }
+
+  const newFile = {
+    id: Date.now(),
+    originalName: req.body.originalName || req.file.originalname,
+    storedName: req.file.filename,
+    size: req.file.size,
+    uploadDate: new Date().toISOString(),
+    user: 'admin' // depois vamos usar req.user do JWT
+  };
+
+  metadata.push(newFile);
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+
+  res.json({ message: 'Arquivo salvo com sucesso!', file: newFile });
+});
+
+// Rota para listar arquivos do usuário
+app.get('/api/files', (req, res) => {
+  const metadataPath = path.join(__dirname, 'metadata.json');
+  if (!fs.existsSync(metadataPath)) {
+    return res.json([]);
+  }
+
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  // Filtrar por usuário depois
+  res.json(metadata);
+});
+
+// Rota para download de arquivo salvo
+app.get('/api/download/:filename', (req, res) => {
+  const filePath = path.join(__dirname, 'uploads', req.params.filename);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).json({ error: 'Arquivo não encontrado' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);
+});

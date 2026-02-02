@@ -6,11 +6,18 @@ function App() {
   const [text, setText] = useState('');
   const [key, setKey] = useState('');
   const [result, setResult] = useState('');
-  const [mode, setMode] = useState('encrypt');
+  const [mode, setMode] = useState('encrypt'); // encrypt ou decrypt para texto
+
+  // Estados para arquivos
   const [file, setFile] = useState(null);
   const [filePassword, setFilePassword] = useState('');
   const [encryptedFileUrl, setEncryptedFileUrl] = useState(null);
   const [encryptedFileName, setEncryptedFileName] = useState('');
+
+  const [decryptFile, setDecryptFile] = useState(null);
+  const [decryptPassword, setDecryptPassword] = useState('');
+  const [decryptedFileUrl, setDecryptedFileUrl] = useState(null);
+  const [decryptedFileName, setDecryptedFileName] = useState('');
 
   const login = async () => {
     try {
@@ -49,7 +56,7 @@ function App() {
     }
   };
 
-  // Função para criptografar arquivo no navegador (Web Crypto API)
+  // Função para criptografar arquivo no navegador (Web Crypto API - AES-GCM)
   const encryptFile = async (file, password) => {
     const encoder = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
@@ -78,7 +85,6 @@ function App() {
       buffer
     );
 
-    // Concatena salt + iv + dados criptografados
     const combined = new Uint8Array([
       ...salt,
       ...iv,
@@ -112,31 +118,135 @@ function App() {
     }
   };
 
+  // Função para descriptografar arquivo .vault
+  const decryptFileFunc = async (file, password) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      const combined = new Uint8Array(buffer);
+
+      // Extrai salt (16 bytes), iv (12 bytes), encrypted (resto)
+      const salt = combined.slice(0, 16);
+      const iv = combined.slice(16, 28);
+      const encryptedData = combined.slice(28);
+
+      const encoder = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(password),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits', 'deriveKey']
+      );
+
+      const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['decrypt']
+      );
+
+      const decryptedBuffer = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        encryptedData
+      );
+
+      const blob = new Blob([decryptedBuffer]);
+      const url = URL.createObjectURL(blob);
+
+      // Remove .vault do nome para retornar o original
+      const originalName = file.name.replace(/\.vault$/i, '');
+
+      return { url, name: originalName };
+    } catch (err) {
+      throw new Error('Descriptografia falhou. Senha incorreta ou arquivo corrompido: ' + err.message);
+    }
+  };
+
+  const handleFileDecrypt = async () => {
+    if (!decryptFile) {
+      alert('Selecione o arquivo .vault primeiro!');
+      return;
+    }
+    if (!decryptPassword) {
+      alert('Digite a senha usada na criptografia!');
+      return;
+    }
+
+    try {
+      const { url, name } = await decryptFileFunc(decryptFile, decryptPassword);
+      setDecryptedFileUrl(url);
+      setDecryptedFileName(name);
+      setResult('Arquivo descriptografado com sucesso! Clique para baixar o original.');
+    } catch (err) {
+      setResult(err.message);
+    }
+  };
+
   return (
-    <div style={{ padding: '30px', maxWidth: '700px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
+    <div style={{ padding: '30px', maxWidth: '800px', margin: '0 auto', fontFamily: 'Arial, sans-serif', background: '#f9f9f9', borderRadius: '10px' }}>
       <h1 style={{ textAlign: 'center', color: '#2c3e50' }}>VaultLock</h1>
       <p style={{ textAlign: 'center', color: '#7f8c8d' }}>Criptografia segura de textos e arquivos</p>
 
       {!token ? (
         <div style={{ textAlign: 'center', margin: '40px 0' }}>
           <p>Credenciais de teste: <strong>admin</strong> / <strong>123456</strong></p>
-          <button onClick={login} style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px' }}>
+          <button 
+            onClick={login}
+            style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+          >
             Fazer Login
           </button>
         </div>
       ) : (
         <div>
-          <p style={{ color: '#27ae60', textAlign: 'center' }}>Logado com sucesso!</p>
+          <p style={{ color: '#27ae60', textAlign: 'center', fontWeight: 'bold' }}>Logado com sucesso!</p>
 
-          {/* Parte de texto (já existente) */}
+          {/* Criptografia / Descriptografia de Texto */}
           <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Criptografar/Descriptografar Texto</h3>
-            {/* ... seus inputs e botões de texto aqui - mantenha como estava */}
+            <h3>Criptografar ou Descriptografar Texto</h3>
+            <div style={{ margin: '20px 0', textAlign: 'center' }}>
+              <button 
+                onClick={() => setMode('encrypt')}
+                style={{ padding: '10px 20px', margin: '0 10px', background: mode === 'encrypt' ? '#3498db' : '#ecf0f1', color: mode === 'encrypt' ? 'white' : '#333', border: 'none', borderRadius: '6px' }}
+              >
+                Criptografar Texto
+              </button>
+              <button 
+                onClick={() => setMode('decrypt')}
+                style={{ padding: '10px 20px', margin: '0 10px', background: mode === 'decrypt' ? '#3498db' : '#ecf0f1', color: mode === 'decrypt' ? 'white' : '#333', border: 'none', borderRadius: '6px' }}
+              >
+                Descriptografar Texto
+              </button>
+            </div>
+
+            <textarea 
+              placeholder={mode === 'encrypt' ? "Digite o texto aqui..." : "Cole o texto criptografado aqui..."}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              style={{ width: '100%', height: '100px', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }}
+            />
+
+            <input 
+              type="text" 
+              placeholder="Chave secreta"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }}
+            />
+
+            <button 
+              onClick={processText}
+              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px' }}
+            >
+              {mode === 'encrypt' ? 'Criptografar Texto' : 'Descriptografar Texto'}
+            </button>
           </div>
 
-          {/* Nova parte: Criptografar Arquivo */}
+          {/* Criptografar Arquivo */}
           <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Criptografar Arquivo (PDF, DOCX, etc.)</h3>
+            <h3>Criptografar Arquivo (PDF, DOCX, imagens, etc.)</h3>
             <input 
               type="file" 
               onChange={(e) => setFile(e.target.files[0])} 
@@ -147,21 +257,21 @@ function App() {
               placeholder="Senha forte para o arquivo" 
               value={filePassword} 
               onChange={(e) => setFilePassword(e.target.value)} 
-              style={{ width: '100%', padding: '10px', margin: '10px 0' }} 
+              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }} 
             />
             <button 
               onClick={handleFileEncrypt}
-              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px' }}
+              style={{ width: '100%', padding: '12px', background: '#e67e22', color: 'white', border: 'none', borderRadius: '6px', marginTop: '10px' }}
             >
               Criptografar Arquivo
             </button>
 
             {encryptedFileUrl && (
-              <div style={{ marginTop: '20px' }}>
+              <div style={{ marginTop: '20px', textAlign: 'center' }}>
                 <a 
                   href={encryptedFileUrl} 
                   download={encryptedFileName}
-                  style={{ color: '#27ae60', fontWeight: 'bold' }}
+                  style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}
                 >
                   Baixar arquivo criptografado (.vault)
                 </a>
@@ -169,7 +279,47 @@ function App() {
             )}
           </div>
 
-          {result && <p style={{ marginTop: '20px', color: '#e74c3c' }}>{result}</p>}
+          {/* Descriptografar Arquivo */}
+          <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
+            <h3>Descriptografar Arquivo (.vault)</h3>
+            <input 
+              type="file" 
+              accept=".vault" 
+              onChange={(e) => setDecryptFile(e.target.files[0])} 
+              style={{ margin: '10px 0', display: 'block' }} 
+            />
+            <input 
+              type="password" 
+              placeholder="Senha usada na criptografia" 
+              value={decryptPassword} 
+              onChange={(e) => setDecryptPassword(e.target.value)} 
+              style={{ width: '100%', padding: '12px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ccc' }} 
+            />
+            <button 
+              onClick={handleFileDecrypt}
+              style={{ width: '100%', padding: '12px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', marginTop: '10px' }}
+            >
+              Descriptografar Arquivo
+            </button>
+
+            {decryptedFileUrl && (
+              <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                <a 
+                  href={decryptedFileUrl} 
+                  download={decryptedFileName}
+                  style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}
+                >
+                  Baixar arquivo original
+                </a>
+              </div>
+            )}
+          </div>
+
+          {result && (
+            <p style={{ marginTop: '30px', padding: '15px', background: '#ecf0f1', borderRadius: '8px', textAlign: 'center' }}>
+              {result}
+            </p>
+          )}
         </div>
       )}
     </div>

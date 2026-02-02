@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const CryptoJS = require('crypto-js');
-const path = require('path'); // Movido para o topo
+const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 require('dotenv').config();
@@ -43,7 +43,6 @@ app.post('/api/decrypt', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  // Auth simples de teste - em produção use bcrypt + banco de dados!
   if (username === 'admin' && password === '123456') {
     const token = jwt.sign({ user: username }, JWT_SECRET, { expiresIn: '1h' });
     res.json({ token });
@@ -86,7 +85,6 @@ app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
     return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   }
 
-  // Salva metadados em um JSON simples (para MVP)
   const metadataPath = path.join(__dirname, 'metadata.json');
   let metadata = [];
   if (fs.existsSync(metadataPath)) {
@@ -116,7 +114,6 @@ app.get('/api/files', (req, res) => {
   }
 
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  // Filtrar por usuário depois
   res.json(metadata);
 });
 

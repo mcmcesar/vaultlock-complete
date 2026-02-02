@@ -121,7 +121,9 @@ app.get('/api/download/:filename', (req, res) => {
 // Servir o frontend React (deve ser o ÚLTIMO!)
 if (process.env.NODE_ENV === 'production') {
   const buildPath = path.join(__dirname, '../../frontend/dist');
+
   app.use(express.static(buildPath));
+
   app.get('*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });

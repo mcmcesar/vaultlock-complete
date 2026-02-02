@@ -5,7 +5,6 @@ const CryptoJS = require('crypto-js');
 const path = require('path'); // Movido para o topo
 const multer = require('multer');
 const fs = require('fs');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -57,17 +56,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'VaultLock backend online' });
 });
 
-// Servir o build do React em produção (apenas um bloco)
+// Servir o build do React em produção
 if (process.env.NODE_ENV === 'production') {
   const buildPath = path.join(__dirname, '../../frontend/dist');
 
   app.use(express.static(buildPath));
 
-  // Catch-all route: qualquer rota não-API retorna index.html
   app.get('*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
 }
+
 // Configuração do multer para salvar arquivos na pasta uploads/
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -130,6 +129,7 @@ app.get('/api/download/:filename', (req, res) => {
     res.status(404).json({ error: 'Arquivo não encontrado' });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`✅ Backend VaultLock rodando em http://localhost:${PORT}`);
 });

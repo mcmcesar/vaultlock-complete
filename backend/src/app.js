@@ -71,7 +71,8 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/';
     if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+      fs.mkdirSync(uploadDir, { recursive: true, mode: 0o777 });
+      console.log('Pasta uploads criada automaticamente');
     }
     cb(null, uploadDir);
   },
@@ -80,7 +81,6 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + '-' + file.originalname);
   }
 });
-
 const upload = multer({ storage: storage });
 
 // Rota para upload de arquivo criptografado (salva no MongoDB)

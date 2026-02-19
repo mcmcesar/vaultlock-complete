@@ -4,8 +4,11 @@ const jwt = require('jsonwebtoken');
 const CryptoJS = require('crypto-js');
 const path = require('path');
 const multer = require('multer');
-const fs = require('fs');
+const mongoose = require('mongoose');
 require('dotenv').config();
+
+// Importa o modelo File (crie o arquivo models/File.js depois)
+const File = require('./models/File');
 
 const app = express();
 app.use(cors());
@@ -13,6 +16,11 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'sua-chave-secreta-muito-forte-aqui-mude-isso!';
+
+// Conexão com MongoDB Atlas
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('MongoDB conectado com sucesso!'))
+  .catch(err => console.error('Erro ao conectar no MongoDB:', err));
 
 // Rotas de criptografia de texto
 app.post('/api/encrypt', (req, res) => {
@@ -61,7 +69,11 @@ app.get('/api/health', (req, res) => {
 // Configuração do multer para upload
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    const uploadDir = 'uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -71,41 +83,37 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Rota para upload de arquivo criptografado
-app.post('/api/upload-file', upload.single('vaultFile'), (req, res) => {
+// Rota para upload de arquivo criptografado (salva no MongoDB)
+app.post('/api/upload-file', upload.single('vaultFile'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   }
 
-  const metadataPath = path.join(__dirname, 'metadata.json');
-  let metadata = [];
-  if (fs.existsSync(metadataPath)) {
-    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  try {
+    const newFile = new File({
+      user: 'admin', // futuro: req.user.user do JWT
+      originalName: req.body.originalName || req.file.originalname,
+      storedName: req.file.filename,
+      size: req.file.size
+    });
+
+    await newFile.save();
+    res.json({ message: 'Arquivo salvo no MongoDB!', file: newFile });
+  } catch (err) {
+    console.error('Erro ao salvar no MongoDB:', err);
+    res.status(500).json({ error: 'Erro ao salvar arquivo' });
   }
-
-  const newFile = {
-    id: Date.now(),
-    originalName: req.body.originalName || req.file.originalname,
-    storedName: req.file.filename,
-    size: req.file.size,
-    uploadDate: new Date().toISOString(),
-    user: 'admin' // futuro: usar req.user do JWT
-  };
-
-  metadata.push(newFile);
-  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-
-  res.json({ message: 'Arquivo salvo com sucesso!', file: newFile });
 });
 
-// Lista de arquivos
-app.get('/api/files', (req, res) => {
-  const metadataPath = path.join(__dirname, 'metadata.json');
-  if (!fs.existsSync(metadataPath)) {
-    return res.json([]);
+// Lista de arquivos do usuário
+app.get('/api/files', async (req, res) => {
+  try {
+    const files = await File.find({ user: 'admin' }); // futuro: filtrar por req.user
+    res.json(files);
+  } catch (err) {
+    console.error('Erro ao listar arquivos:', err);
+    res.status(500).json({ error: 'Erro ao listar arquivos' });
   }
-  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  res.json(metadata);
 });
 
 // Download de arquivo

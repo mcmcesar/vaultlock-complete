@@ -29,20 +29,15 @@ function App() {
       });
       setToken(res.data.token);
       setResult('Login realizado com sucesso!');
+      fetchFiles(); // carrega lista após login
     } catch (err) {
       setResult('Erro no login: credenciais inválidas');
     }
   };
 
   const processText = async () => {
-    if (!token) {
-      setResult('Faça login primeiro!');
-      return;
-    }
-    if (!text || !key) {
-      setResult('Preencha texto e chave!');
-      return;
-    }
+    if (!token) return setResult('Faça login primeiro!');
+    if (!text || !key) return setResult('Preencha texto e chave!');
     try {
       const endpoint = mode === 'encrypt' ? '/encrypt' : '/decrypt';
       const payload = mode === 'encrypt' ? { text, key } : { encrypted: text, key };
@@ -55,7 +50,6 @@ function App() {
     }
   };
 
-  // Criptografar arquivo client-side
   const encryptFile = async (file, password) => {
     const encoder = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
@@ -106,11 +100,10 @@ function App() {
       setEncryptedFileName(name);
       setResult('Arquivo criptografado! Clique para baixar ou salvar.');
     } catch (err) {
-      setResult('Erro: ' + err.message);
+      setResult('Erro ao criptografar: ' + err.message);
     }
   };
 
-  // Descriptografar arquivo .vault
   const decryptFileFunc = async (file, password) => {
     const buffer = await file.arrayBuffer();
     const combined = new Uint8Array(buffer);
@@ -162,41 +155,53 @@ function App() {
     }
   };
 
-  // Salvar criptografado no servidor
   const handleSaveToServer = async () => {
-    if (!encryptedFileUrl) return alert('Criptografe primeiro!');
+    console.log('Botão Salvar clicado!');
+    if (!token) return setResult('Faça login primeiro!');
+    if (!encryptedFileUrl || !encryptedFileName) return setResult('Criptografe um arquivo primeiro!');
+
     try {
+      console.log('Baixando blob do URL temporário...');
       const response = await fetch(encryptedFileUrl);
+      if (!response.ok) throw new Error('Falha ao carregar o blob do arquivo criptografado');
+
       const blob = await response.blob();
       const fileToUpload = new File([blob], encryptedFileName, { type: 'application/octet-stream' });
+      console.log('Arquivo preparado para envio:', fileToUpload.name, fileToUpload.size);
 
       const formData = new FormData();
       formData.append('vaultFile', fileToUpload);
       formData.append('originalName', encryptedFileName.replace('.vault', ''));
 
+      console.log('Enviando POST para /api/upload-file... Token:', token.substring(0, 20) + '...');
+
       const res = await axios.post('/api/upload-file', formData, {
-        headers: { 
-          'Content-Type': 'multipart/form-data',
+        headers: {
           Authorization: `Bearer ${token}`
         }
       });
 
-      setResult('Salvo no servidor!');
-      fetchFiles(); // atualiza lista
+      console.log('Resposta do servidor:', res.data);
+      setResult('Salvo no servidor com sucesso! Veja na lista abaixo.');
+      fetchFiles();
     } catch (err) {
-      setResult('Erro ao salvar: ' + err.message);
+      console.error('Erro completo ao salvar:', err);
+      console.error('Detalhes:', err.response ? err.response.data : err.message);
+      setResult('Erro ao salvar: ' + (err.response?.data?.error || err.message || 'Erro desconhecido'));
     }
   };
 
-  // Listar arquivos salvos
   const fetchFiles = async () => {
+    console.log('Atualizando lista de arquivos...');
     try {
       const res = await axios.get('/api/files', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Arquivos recebidos:', res.data);
       setSavedFiles(res.data);
       setResult('Lista atualizada!');
     } catch (err) {
+      console.error('Erro ao listar arquivos:', err);
       setResult('Erro na lista: ' + err.message);
     }
   };
@@ -209,7 +214,7 @@ function App() {
       {!token ? (
         <div style={{ textAlign: 'center', margin: '40px 0' }}>
           <p>Credenciais de teste: <strong>admin</strong> / <strong>123456</strong></p>
-          <button onClick={login} style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px' }}>
+          <button onClick={login} style={{ padding: '14px 40px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
             Fazer Login
           </button>
         </div>
@@ -217,9 +222,9 @@ function App() {
         <div>
           <p style={{ color: '#27ae60', textAlign: 'center', fontWeight: 'bold' }}>Logado com sucesso!</p>
 
-          {/* Texto */}
+          {/* Criptografar/Descriptografar Texto */}
           <div style={{ margin: '30px 0', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <h3>Criptografar/Descriptografar Texto</h3>
+            <h3>Criptografar ou Descriptografar Texto</h3>
             <div style={{ margin: '20px 0', textAlign: 'center' }}>
               <button onClick={() => setMode('encrypt')} style={{ padding: '10px 20px', margin: '0 10px', background: mode === 'encrypt' ? '#3498db' : '#ecf0f1', color: mode === 'encrypt' ? 'white' : '#333', border: 'none', borderRadius: '6px' }}>
                 Criptografar Texto
@@ -291,7 +296,7 @@ function App() {
                 ))}
               </ul>
             ) : (
-              <p>Nenhum arquivo salvo ainda.</p>
+              <p>Nenhum arquivo salvo ainda. Criptografe e salve um!</p>
             )}
           </div>
 
@@ -303,3 +308,4 @@ function App() {
 }
 
 export default App;
+
